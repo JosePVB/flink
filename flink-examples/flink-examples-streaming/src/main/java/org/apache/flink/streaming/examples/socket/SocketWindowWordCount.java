@@ -18,12 +18,16 @@
 
 package org.apache.flink.streaming.examples.socket;
 
+import org.apache.flink.api.common.eventtime.TimestampAssignerSupplier;
+import org.apache.flink.api.common.eventtime.WatermarkStrategy;
 import org.apache.flink.api.common.functions.FlatMapFunction;
+import org.apache.flink.api.common.operators.SlotSharingGroup;
 import org.apache.flink.api.common.typeinfo.Types;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.streaming.api.datastream.DataStream;
+import org.apache.flink.streaming.api.datastream.SingleOutputStreamOperator;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
-import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows;
+import org.apache.flink.streaming.api.windowing.assigners.TumblingEventTimeWindows;
 import org.apache.flink.streaming.api.windowing.time.Time;
 
 /**
@@ -44,11 +48,13 @@ public class SocketWindowWordCount {
 
         // the host and the port to connect to
         final String hostname;
-        final int port;
+        final String[] ports;
+        final boolean useSlotSharingGroups;
         try {
             final ParameterTool params = ParameterTool.fromArgs(args);
             hostname = params.has("hostname") ? params.get("hostname") : "localhost";
-            port = params.getInt("port");
+            ports = params.get("ports").split(",");
+            useSlotSharingGroups = params.has("use-ssg");
         } catch (Exception e) {
             System.err.println(
                     "No port specified. Please run 'SocketWindowWordCount "
@@ -63,26 +69,56 @@ public class SocketWindowWordCount {
         // get the execution environment
         final StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-        // get input data by connecting to the socket
-        DataStream<String> text = env.socketTextStream(hostname, port, "\n");
+        for (int i = 0; i < ports.length; i++) {
+            SlotSharingGroup ssg = SlotSharingGroup.newBuilder(ports[i]).build();
+            int port = Integer.valueOf(ports[i]);
+            // get input data by connecting to the socket
+            SingleOutputStreamOperator<String> text = env.socketTextStream(hostname, port, "\n");
+            if (useSlotSharingGroups) {
+                text = text.slotSharingGroup(ssg);
+            }
+            // parse the data, group it, window it, and aggregate the counts
+            DataStream<WordWithCount> windowCounts =
+                    text.name("port " + port)
+                            .assignTimestampsAndWatermarks(
+                                    WatermarkStrategy.<String>forMonotonousTimestamps()
+                                            .withTimestampAssigner(
+                                                    TimestampAssignerSupplier.<String>of(
+                                                            (event, ts) ->
+                                                                    Integer.valueOf(
+                                                                                    event.split(
+                                                                                                    ",")[
+                                                                                            0])
+                                                                            * 1000)))
+                            .flatMap(
+                                    (FlatMapFunction<String, WordWithCount>)
+                                            (value, out) -> {
+                                                String[] parts = value.split(",");
+                                                value = parts[1];
+                                                String window = parts[0];
+                                                for (String word : value.split("\\s")) {
+                                                    out.collect(
+                                                            new WordWithCount(
+                                                                    port, window, word, 1L));
+                                                }
+                                            },
+                                    Types.POJO(WordWithCount.class))
+                            .keyBy(value -> value.word)
+                            .window(TumblingEventTimeWindows.of(Time.seconds(1)))
+                            .reduce(
+                                    (a, b) ->
+                                            new WordWithCount(
+                                                    port, a.window, a.word, a.count + b.count))
+                            .name("window port " + port)
+                            .returns(WordWithCount.class);
 
-        // parse the data, group it, window it, and aggregate the counts
-        DataStream<WordWithCount> windowCounts =
-                text.flatMap(
-                                (FlatMapFunction<String, WordWithCount>)
-                                        (value, out) -> {
-                                            for (String word : value.split("\\s")) {
-                                                out.collect(new WordWithCount(word, 1L));
-                                            }
-                                        },
-                                Types.POJO(WordWithCount.class))
-                        .keyBy(value -> value.word)
-                        .window(TumblingProcessingTimeWindows.of(Time.seconds(5)))
-                        .reduce((a, b) -> new WordWithCount(a.word, a.count + b.count))
-                        .returns(WordWithCount.class);
+            // print the results with a single thread, rather than in parallel
+            windowCounts.print().name("print").setParallelism(1);
 
-        // print the results with a single thread, rather than in parallel
-        windowCounts.print().setParallelism(1);
+            if (useSlotSharingGroups) {
+                env.registerSlotSharingGroup(ssg);
+            }
+        }
 
         env.execute("Socket Window WordCount");
     }
@@ -91,21 +127,24 @@ public class SocketWindowWordCount {
 
     /** Data type for words with count. */
     public static class WordWithCount {
-
+        public int port;
+        public String window;
         public String word;
         public long count;
 
         @SuppressWarnings("unused")
         public WordWithCount() {}
 
-        public WordWithCount(String word, long count) {
+        public WordWithCount(int port, String window, String word, long count) {
+            this.port = port;
+            this.window = window;
             this.word = word;
             this.count = count;
         }
 
         @Override
         public String toString() {
-            return word + " : " + count;
+            return "P" + port + " W" + window + " -- " + word + " : " + count;
         }
     }
 }

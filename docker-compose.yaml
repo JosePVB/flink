@@ -1,0 +1,31 @@
+version: "2.2"
+services:
+  jobmanager:
+    image: flink:latest
+    ports:
+      - "8081:8081"
+    command: standalone-job --job-classname org.apache.flink.streaming.examples.socket.SocketWindowWordCount --hostname host.docker.internal --ports 9999,9998,9997
+    volumes:
+      - ./flink-examples/flink-examples-streaming/target/SocketWindowWordCount.jar:/opt/flink/usrlib/SocketWindowWordCount.jar
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        parallelism.default: 1        
+
+  taskmanager:
+    image: flink:latest
+    depends_on:
+      - jobmanager
+    links:
+      - jobmanager
+    command: taskmanager
+    scale: 1
+    volumes:
+      - ./flink-examples/flink-examples-streaming/target/SocketWindowWordCount.jar:/opt/flink/usrlib/SocketWindowWordCount.jar
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: jobmanager
+        taskmanager.numberOfTaskSlots: 2
+        parallelism.default: 1

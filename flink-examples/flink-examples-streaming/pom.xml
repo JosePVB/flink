@@ -279,6 +279,30 @@ under the License.
 						</configuration>
 					</execution>
 
+					<!-- SocketWriter -->
+					<execution>
+						<id>SocketWriter</id>
+						<phase>package</phase>
+						<goals>
+							<goal>jar</goal>
+						</goals>
+						<configuration>
+							<classifier>SocketWriter</classifier>
+
+							<archive>
+								<manifest>
+									<mainClass>org.apache.flink.streaming.examples.socket.SocketWriter</mainClass>
+								</manifest>
+							</archive>
+
+							<includes>
+								<include>org/apache/flink/streaming/examples/socket/SocketWriter.class</include>
+								<include>META-INF/LICENSE</include>
+								<include>META-INF/NOTICE</include>
+							</includes>
+						</configuration>
+					</execution>
+
 					<!-- SocketWindowWordCount -->
 					<execution>
 						<id>SocketWindowWordCount</id>
@@ -513,6 +537,7 @@ under the License.
 								<copy file="${project.basedir}/target/flink-examples-streaming_${scala.binary.version}-${project.version}-WindowJoin.jar" tofile="${project.basedir}/target/WindowJoin.jar" />
 								<copy file="${project.basedir}/target/flink-examples-streaming_${scala.binary.version}-${project.version}-WordCount.jar" tofile="${project.basedir}/target/WordCount.jar" />
 								<copy file="${project.basedir}/target/flink-examples-streaming_${scala.binary.version}-${project.version}-SocketWindowWordCount.jar" tofile="${project.basedir}/target/SocketWindowWordCount.jar" />
+								<copy file="${project.basedir}/target/flink-examples-streaming_${scala.binary.version}-${project.version}-SocketWriter.jar" tofile="${project.basedir}/target/SocketWriter.jar" />
 							</target>
 						</configuration>
 					</execution>
