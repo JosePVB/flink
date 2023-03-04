@@ -79,7 +79,7 @@ public class SocketWindowWordCount {
             }
             // parse the data, group it, window it, and aggregate the counts
             DataStream<WordWithCount> windowCounts =
-                    text.name("port " + port)
+                    text.name("port-" + port)
                             .assignTimestampsAndWatermarks(
                                     WatermarkStrategy.<String>forMonotonousTimestamps()
                                             .withTimestampAssigner(
@@ -103,6 +103,7 @@ public class SocketWindowWordCount {
                                                 }
                                             },
                                     Types.POJO(WordWithCount.class))
+                            .name("flat-map-port-" + port)
                             .keyBy(value -> value.word)
                             .window(TumblingEventTimeWindows.of(Time.seconds(1)))
                             .reduce(
